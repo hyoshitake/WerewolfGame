@@ -3,7 +3,7 @@ var SHEET_ID = '1mlVonZfEewV6Xn2iI5M-H4QQFfEUwvN3upTSf7hHHI4';
 // 利用しているコマンドのシート名
 var SHEET_NAME_COMMAND = 'command';
 // 利用しているゲームのシート名
-var SHEET_NAME_GAME = 'maybe';
+var SHEET_NAME_GAME = 'game';
 // 利用しているユーザのシート名
 var SHEET_NAME_USER = 'user';
 
@@ -20,6 +20,13 @@ var PROFILE = "https://api.line.me/v2/profile";
 const MSG_RESERVE = 1;
 //送信フラグ
 const MSG_SEND = 2;
+//ゲーム進捗状態
+var GAME_STATE = { 
+  WAIT_JOIN : "START",
+  NOON : "NOON",
+  NIGHT : "NIGHT",
+  END : "END"
+}
 
 /**
  * doPOST
@@ -82,48 +89,57 @@ function reply(data) {
 
     //コマンドリストを作って、スプレットシートのアクションに対応するようにする
     var functionList = new Array();
-    functionList.gameStart = function(postMsg, lineUserId, roomId){gameStart(postMsg, lineUserId, roomId);}
-    functionList.joinGame = function(postMsg, lineUserId, roomId){joinGame(postMsg, lineUserId, roomId);}
-    functionList.completePreparationGame = function(postMsg, lineUserId, roomId){completePreparationGame(postMsg, lineUserId, roomId);}
-    functionList.voting = function(postMsg, lineUserId, roomId){voting(postMsg, lineUserId, roomId);}
-    functionList.killVillager = function(postMsg, lineUserId, roomId){killVillager(postMsg, lineUserId, roomId);}
+    functionList.gameStart = function(postMsg, lineUserId, roomId, replyToken){gameStart(postMsg, lineUserId, roomId, replyToken);}
+    functionList.joinGame = function(postMsg, lineUserId, roomId, replyToken){joinGame(postMsg, lineUserId, roomId, replyToken);}
+    functionList.completePreparationGame = function(postMsg, lineUserId, roomId, replyToken){completePreparationGame(postMsg, lineUserId, roomId, replyToken);}
+    functionList.voting = function(postMsg, lineUserId, roomId, replyToken){voting(postMsg, lineUserId, roomId, replyToken);}
+    functionList.killVillager = function(postMsg, lineUserId, roomId, replyToken){killVillager(postMsg, lineUserId, roomId, replyToken);}
     
     //次の行動に応じた関数を実行する
-    functionList[action.value](postMsg, lineUserId, roomId);
-
-    // メッセージAPI送信
-    // sendMessage(replyToken, replyText);
+    functionList[action.value](postMsg, lineUserId, roomId, replyToken);
   }
 }
 
 //ゲームを開始します
-function gameStart(postMsg, lineUserId, roomId)
+function gameStart(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム開始");
 
+  //GAMEシートに追加するデータを作る
+  var data = [
+    1,      //ゲームID
+    roomId, //ルームID
+    GAME_STATE.WAIT_JOIN  //ステータス  
+  ]
 
+  //シートに追加
+  setData(SHEET_NAME_GAME, data);
+
+  //LINEに応答を返す
+  var replyText = "人狼ゲームを開始します。\r\n参加する方は「参加します」と発言してください。\r\n全員参加したら代表者が「揃いました」と発言してください。";
+  sendMessage(replyToken, replyText);
 }
 
 //ゲームに参加します
-function joinGame(postMsg, lineUserId, roomId)
+function joinGame(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲームに参加");
 }
 
 //準備が整ったら狼と村人をランダムに決めます
-function completePreparationGame(postMsg, lineUserId, roomId)
+function completePreparationGame(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム準備OK");
 }
 
 //投票を受け付けます
-function voting(postMsg, lineUserId, roomId)
+function voting(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "投票");
 }
 
 //村人を襲います
-function killVillager(postMsg, lineUserId, roomId)
+function killVillager(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "村人を襲う");
 }
@@ -144,6 +160,12 @@ function getData(sheet_name) {
   var data = sheet.getDataRange().getValues();
 
   return data.map(function(row) { return {key: row[0], value: row[1], type: row[2]}; });
+}
+
+//シートに1行追加
+function setData(sheet_name, data) {
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheet_name);
+  sheet.appendRow(data);
 }
 
 // 単語が一致したセルの回答を配列で返す
