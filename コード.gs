@@ -72,8 +72,6 @@ function reply(data) {
   // 検索語に対してのアクションをシートから取得
   var actions = findResponseArray(postMsg);
 
-  // 回答メッセージを作成
-  var replyText = '「' + postMsg + '」ですね。かしこまりました。以下、回答です。';
   // 回答の有無に応じて分岐
   if (actions === undefined) {
     //回答がない場合は、グループ内の他の会話だと思うので静かにする。
@@ -81,12 +79,53 @@ function reply(data) {
   } else {
     //うまいやり方がわからなかった。mapから取得すると配列で帰ってくるので先頭だけ取得する
     var action = actions[0];
-    // 回答がある場合のメッセージ生成
-    replyText = replyText + "\n\n＝＝\n\nQ：" + action.key + "\n\nA：" + action.value;
+
+    //コマンドリストを作って、スプレットシートのアクションに対応するようにする
+    var functionList = new Array();
+    functionList.gameStart = function(postMsg, lineUserId, roomId){gameStart(postMsg, lineUserId, roomId);}
+    functionList.joinGame = function(postMsg, lineUserId, roomId){joinGame(postMsg, lineUserId, roomId);}
+    functionList.completePreparationGame = function(postMsg, lineUserId, roomId){completePreparationGame(postMsg, lineUserId, roomId);}
+    functionList.voting = function(postMsg, lineUserId, roomId){voting(postMsg, lineUserId, roomId);}
+    functionList.killVillager = function(postMsg, lineUserId, roomId){killVillager(postMsg, lineUserId, roomId);}
+    
+    //次の行動に応じた関数を実行する
+    functionList[action.value](postMsg, lineUserId, roomId);
 
     // メッセージAPI送信
-    sendMessage(replyToken, replyText);
+    // sendMessage(replyToken, replyText);
   }
+}
+
+//ゲームを開始します
+function gameStart(postMsg, lineUserId, roomId)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム開始");
+
+
+}
+
+//ゲームに参加します
+function joinGame(postMsg, lineUserId, roomId)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲームに参加");
+}
+
+//準備が整ったら狼と村人をランダムに決めます
+function completePreparationGame(postMsg, lineUserId, roomId)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム準備OK");
+}
+
+//投票を受け付けます
+function voting(postMsg, lineUserId, roomId)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "投票");
+}
+
+//村人を襲います
+function killVillager(postMsg, lineUserId, roomId)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "村人を襲う");
 }
 
 // SSからヘッダーを除くデータを取得
@@ -209,12 +248,6 @@ function getUserDisplayName(userId) {
     },
   })
   return JSON.parse(userProfile).displayName;
-}
-
-// userIdシートに記載
-function lineUserId(userId) {
-  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('userId');
-  sheet.appendRow([userId]);
 }
 
 // debugシートに値を記載
