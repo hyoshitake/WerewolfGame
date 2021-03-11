@@ -67,26 +67,23 @@ function reply(data) {
   }
 
   // 記録用に検索語とuserIdを記録
-  debug(postMsg, lineUserId, roomId, MSG_RESERVE);
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "");
 
-  // 検索語に対しての回答をSSから取得
-  var answers = findResponseArray(postMsg);
+  // 検索語に対してのアクションをシートから取得
+  var actions = findResponseArray(postMsg);
 
   // 回答メッセージを作成
   var replyText = '「' + postMsg + '」ですね。かしこまりました。以下、回答です。';
   // 回答の有無に応じて分岐
-  if (answers.length === 0) {
+  if (actions === undefined) {
     //回答がない場合は、グループ内の他の会話だと思うので静かにする。
+    debug(postMsg, lineUserId, roomId, MSG_RESERVE, "無反応");
   } else {
+    //うまいやり方がわからなかった。mapから取得すると配列で帰ってくるので先頭だけ取得する
+    var action = actions[0];
     // 回答がある場合のメッセージ生成
-    answers.forEach(function(answer) {
-      replyText = replyText + "\n\n＝＝＝＝＝＝＝＝＝＝＝＝＝\n\nQ：" + answer.key + "\n\nA：" + answer.value;
-    });
+    replyText = replyText + "\n\n＝＝\n\nQ：" + action.key + "\n\nA：" + action.value;
 
-    // 1000文字を超える場合は途中で切る
-    if (replyText.length > 1000) {
-      replyText = replyText.slice(0,1000) + "……\n\n＝＝＝＝＝＝＝＝＝＝＝＝＝\n\n回答文字数オーバーです。詳細に検索キーワードを絞ってください。";
-    }
     // メッセージAPI送信
     sendMessage(replyToken, replyText);
   }
@@ -110,31 +107,18 @@ function getData(sheet_name) {
   return data.map(function(row) { return {key: row[0], value: row[1], type: row[2]}; });
 }
 
-// SSから「もしかして」データを取得
-function getMayBeData() {
-  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_MAYBE);
-  var data = sheet.getDataRange().getValues();
-  return data.map(function(row) { return {key: row[0], value: row[1], type: row[2]}; });
-}
-
 // 単語が一致したセルの回答を配列で返す
 function findResponseArray(word) {
 
-  return getDataWithoutHeader(SHEET_NAME_COMMAND).reduce(function(memo, row) {
+  return getDataWithoutHeader(SHEET_NAME_COMMAND).map(function(row) {
     // 値が入っているか
     if (row.value) {
       //単語が一致するか
       if (row.key == word){
-        memo.push(row);
+        return row;
       }
     }
-    return memo;
-  }, []) || [];
-}
-
-// 単語が一致したセルの回答を「もしかして」を返す
-function findMaybe(word) {
-  return getMayBeData().reduce(function(memo, row) { return memo || (row.key === word && row.value); }, false) || undefined;
+  });
 }
 
 // 画像形式でAPI送信
@@ -234,10 +218,10 @@ function lineUserId(userId) {
 }
 
 // debugシートに値を記載
-function debug(text, userId, roomId, msg_flag) {
+function debug(text, userId, roomId, msg_flag, action) {
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('debug');
   var date = new Date();
   var userName = getUserDisplayName(userId);
   var actiontype = msg_flag == MSG_RESERVE ? "受信" : "送信";
-  sheet.appendRow([actiontype, userId, userName, roomId, text, Utilities.formatDate( date, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')]);
+  sheet.appendRow([actiontype, userId, userName, roomId, text, Utilities.formatDate( date, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'), action]);
 }
