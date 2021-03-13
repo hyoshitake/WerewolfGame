@@ -77,10 +77,10 @@ function reply(data) {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "");
 
   // 検索語に対してのアクションをシートから取得
-  var actions = findResponseArray(postMsg);
+  var action = findResponseArray(postMsg);
 
   // 回答の有無に応じて分岐
-  if (actions === undefined) {
+  if (action === undefined) {
     //回答がない場合は、グループ内の他の会話だと思うので静かにする。
     debug(postMsg, lineUserId, roomId, MSG_RESERVE, "無反応");
   } else {
@@ -93,9 +93,7 @@ function reply(data) {
     functionList.completePreparationGame = function(postMsg, lineUserId, roomId, replyToken){completePreparationGame(postMsg, lineUserId, roomId, replyToken);}
     functionList.voting = function(postMsg, lineUserId, roomId, replyToken){voting(postMsg, lineUserId, roomId, replyToken);}
     functionList.killVillager = function(postMsg, lineUserId, roomId, replyToken){killVillager(postMsg, lineUserId, roomId, replyToken);}
-    
-    //うまいやり方がわからなかった。mapから取得すると配列で帰ってくるので先頭だけ取得する
-    var action = actions[0];
+    functionList.gameEnd = function(postMsg, lineUserId, roomId, replyToken){gameEnd(postMsg, lineUserId, roomId, replyToken);}
 
     //次の行動に応じた関数を実行する
     functionList[action.value](postMsg, lineUserId, roomId, replyToken);
@@ -107,6 +105,18 @@ function gameStart(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム開始");
   
+  //実行中のゲームがあるか確認
+  if(getNowPlayGameId(roomId) !== undefined)
+  {
+    //実行中のゲームがあるので通知して終了するか確認する
+    var replyText = "実行中のゲームがあります。終了する場合は「ゲームを終了します」と発言してください";
+    //メッセージ送信
+    sendMessage(replyToken, replyText);
+
+    //処理終了
+    return null;
+  }
+
   //最大値を取得して追加するので一旦ロックする
   var lock = LockService.getDocumentLock();
   try {
@@ -139,10 +149,36 @@ function gameStart(postMsg, lineUserId, roomId, replyToken)
   }
 }
 
+//実行中のゲームを終了する
+function gameEnd(postMsg, lineUserId, roomId, replyToken)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム終了");
+
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameId(roomId);
+
+  //終了する
+  setGameState(gameId, GAME_STATE.END);
+}
+
 //ゲームに参加します
 function joinGame(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲームに参加");
+
+  // //userシートに追加するデータを作る
+  // var data = [
+  //   Number(gameIdMax) + 1,      //ゲームID
+  //   roomId,             //ルームID
+  //   GAME_STATE.WAIT_JOIN  //ステータス  
+  // ]
+
+  // //シートに追加
+  // setData(SHEET_NAME_GAME, data);
+
+  var userName = getUserDisplayName(userId);
+  var replyText = userName + " さんの参加を受け付けました。";
+  sendMessage(replyToken, replyText); 
 }
 
 //準備が整ったら狼と村人をランダムに決めます
@@ -161,6 +197,24 @@ function voting(postMsg, lineUserId, roomId, replyToken)
 function killVillager(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "村人を襲う");
+}
+
+//ゲームの状態を変更します
+function setGameState(gameId, state)
+{
+  var gameIds = getDataColunm(SHEET_NAME_GAME, 1);
+
+  //変更対象の行数を取得します
+  var rowidx = gameIds.indexOf(gameId);
+
+  if(rowidx < 0)
+  {
+    throw "システムエラー。指定したゲームIDが存在しない。gameId:" + gameId
+  }
+  
+  //値をセットします
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_GAME);
+  sheet.getRange(rowidx+1, 3, 1, 1).setValue(state);
 }
 
 // SSからヘッダーを除くデータを取得
@@ -186,7 +240,7 @@ function getDataColunm(sheet_name, column) {
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheet_name);
 
   //ヘッダ行を除く2行目から指定列の全データを取得する
-  return sheet.getRange(2, column, sheet.getLastRow()).getValues();
+  return sheet.getRange(2, column, sheet.getLastRow()).getValues().flat();
 }
 
 //特定列の最大値を取得
@@ -208,18 +262,37 @@ function setData(sheet_name, data) {
   sheet.appendRow(data);
 }
 
+//ルームが現在プレイ中のgameIdを取得する
+function getNowPlayGameId(roomId)
+{
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_GAME);
+  var data = sheet.getDataRange().getValues();
+
+  var datamap = data.map(function(row) { return {gameId: row[0], roomId: row[1], status: row[2]}; });
+
+  //終了していないゲームを取得する
+  var gamerow = datamap.filter((row) => row.roomId == roomId && roomId != GAME_STATE.END);
+
+  //もしも2つ以上あればおかしい
+  if(gamerow.length > 1)
+  {
+    throw "システムエラーです。１つのルームに2つ以上のゲームが実行中です。roomId:" + roomId;
+  }
+
+  //もしも存在しなければ
+  if(gamerow.length == 0)
+  {
+    return undefined;
+  }
+
+  return gamerow[0].gameId;
+}
+
 // 単語が一致したセルの回答を配列で返す
 function findResponseArray(word) {
 
-  return getDataWithoutHeader(SHEET_NAME_COMMAND).map(function(row) {
-    // 値が入っているか
-    if (row.value) {
-      //単語が一致するか
-      if (row.key == word){
-        return row;
-      }
-    }
-  });
+  var commandlist = getDataWithoutHeader(SHEET_NAME_COMMAND);
+  return commandlist.find(command => command.key === word);
 }
 
 // 画像形式でAPI送信
@@ -246,38 +319,6 @@ function sendMessage(replyToken, replyText) {
       {
         "type" : "text",
         "text" : replyText
-      }
-    ]
-  };
-  return postMessage(postData);
-}
-
-// LINE messaging apiにJSON形式で確認をPOST
-function sendMayBe(replyToken, mayBeWord) {  
-  // replyするメッセージの定義
-  var postData = {
-    "replyToken" : replyToken,
-    "messages" : [
-      {
-        "type" : "template",
-        "altText" : "もしかして検索キーワードは「" + mayBeWord + "」ですか？",
-        "template": {
-          "type": "confirm",
-          "actions": [
-            {
-                "type":"postback",
-                "label":"はい",
-                "data":"action=detail",
-            },
-            {
-                "type": "message",
-                "label": "いいえ",
-                "text": "いいえ、違います。"
-            }
-          ],
-          "text": "答えが見つかりませんでした。もしかして検索キーワードは「" + mayBeWord + "」ですか？"
-        }
-
       }
     ]
   };
