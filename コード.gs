@@ -214,7 +214,10 @@ function setGameState(gameId, state)
   
   //値をセットします
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_GAME);
-  sheet.getRange(rowidx+1, 3, 1, 1).setValue(state);
+
+  //indexOfは0始まりだが、指定するのは1始まり
+  //そして、ヘッダ行があるのでさらにプラス1。
+  sheet.getRange(rowidx+2, 3, 1, 1).setValue(state);
 }
 
 // SSからヘッダーを除くデータを取得
