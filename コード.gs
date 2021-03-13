@@ -88,20 +88,20 @@ function reply(data) {
 
     //コマンドリストを作って、スプレットシートのアクションに対応するようにする
     var functionList = new Array();
-    functionList.gameStart = function(postMsg, lineUserId, roomId, replyToken){gameStart(postMsg, lineUserId, roomId, replyToken);}
-    functionList.joinGame = function(postMsg, lineUserId, roomId, replyToken){joinGame(postMsg, lineUserId, roomId, replyToken);}
-    functionList.completePreparationGame = function(postMsg, lineUserId, roomId, replyToken){completePreparationGame(postMsg, lineUserId, roomId, replyToken);}
-    functionList.voting = function(postMsg, lineUserId, roomId, replyToken){voting(postMsg, lineUserId, roomId, replyToken);}
-    functionList.killVillager = function(postMsg, lineUserId, roomId, replyToken){killVillager(postMsg, lineUserId, roomId, replyToken);}
-    functionList.gameEnd = function(postMsg, lineUserId, roomId, replyToken){gameEnd(postMsg, lineUserId, roomId, replyToken);}
+    functionList.gameStart = function(key, postMsg, lineUserId, roomId, replyToken){gameStart(key, postMsg, lineUserId, roomId, replyToken);}
+    functionList.gameEnd = function(key, postMsg, lineUserId, roomId, replyToken){gameEnd(key, postMsg, lineUserId, roomId, replyToken);}
+    functionList.joinGame = function(key, postMsg, lineUserId, roomId, replyToken){joinGame(key, postMsg, lineUserId, roomId, replyToken);}
+    functionList.completePreparationGame = function(key, postMsg, lineUserId, roomId, replyToken){completePreparationGame(key, postMsg, lineUserId, roomId, replyToken);}
+    functionList.voting = function(key, postMsg, lineUserId, roomId, replyToken){voting(key, postMsg, lineUserId, roomId, replyToken);}
+    functionList.killVillager = function(key, postMsg, lineUserId, roomId, replyToken){killVillager(key, postMsg, lineUserId, roomId, replyToken);}
 
     //次の行動に応じた関数を実行する
-    functionList[action.value](postMsg, lineUserId, roomId, replyToken);
+    functionList[action.value](action.key, postMsg, lineUserId, roomId, replyToken);
   }
 }
 
 //ゲームを開始します
-function gameStart(postMsg, lineUserId, roomId, replyToken)
+function gameStart(key, postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム開始");
   
@@ -154,7 +154,7 @@ function gameStart(postMsg, lineUserId, roomId, replyToken)
 }
 
 //実行中のゲームを終了する
-function gameEnd(postMsg, lineUserId, roomId, replyToken)
+function gameEnd(key, postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム終了");
 
@@ -178,7 +178,7 @@ function gameEnd(postMsg, lineUserId, roomId, replyToken)
 }
 
 //ゲームに参加します
-function joinGame(postMsg, lineUserId, roomId, replyToken)
+function joinGame(key, postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲームに参加");
 
@@ -189,6 +189,12 @@ function joinGame(postMsg, lineUserId, roomId, replyToken)
   if(gameId === undefined)
   {
     debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+  if(getGameState(gameId) != GAME_STATE.WAIT_JOIN)
+  {
+    sendMessage(replyToken, "途中参加はできません。"); 
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "途中参加はできません。");
     return;
   }
 
@@ -224,7 +230,7 @@ function joinGame(postMsg, lineUserId, roomId, replyToken)
 }
 
 //準備が整ったら狼と村人をランダムに決めます
-function completePreparationGame(postMsg, lineUserId, roomId, replyToken)
+function completePreparationGame(key, postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム準備OK");
 
@@ -233,6 +239,13 @@ function completePreparationGame(postMsg, lineUserId, roomId, replyToken)
 
   //ゲームの状態を確認する
   if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+
+  //状態が参加町ではない場合
+  if(getGameState(gameId) != GAME_STATE.WAIT_JOIN)
   {
     debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
     return;
@@ -268,23 +281,128 @@ function completePreparationGame(postMsg, lineUserId, roomId, replyToken)
 
   //通知が終わったので昼にしてゲームを開始する
   setGameState(gameId, GAME_STATE.NOON);
-  var replyText = "ゲームを開始します。";
-  sendMessage(replyToken, replyText);
-  var replyText = "昼になりました。狼を探しましょう。\r\n狼を決めたら「〇〇に投票します」と発言してください。";
+  var replyText = "ゲームを開始します。\r\n昼になりました。狼を探しましょう。\r\n狼を決めたら「〇〇に投票します」と個別トークで発言してください。";
   sendMessage(replyToken, replyText);
   debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 }
 
 //投票を受け付けます
-function voting(postMsg, lineUserId, roomId, replyToken)
+function voting(key, postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "投票");
+
+  //個別トークではない場合
+  if(roomId != "")
+  {
+    var replyText = "投票は個別トークで受け付けます。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+    return;
+  }
+
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, GAME_STATE.NOON);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+
+  //状態が昼ではない場合
+  if(getGameState(gameId) != GAME_STATE.NOON)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+
+  //スプレットシートのデータ取得は遅いらしいので、1回で済ませる
+  //ユーザ一覧を取得する
+  var users = getUsers(gameId);
+
+  //投票対象者名を取得する
+  var reg = new RegExp(key)
+  var hitarray = reg.exec(postMsg);
+
+  //もしも部分一致がなかったら
+  if(hitarray.length < 2){
+    throw "システムエラー。投票コマンドに部分一致がありません。key：" + key;
+  }
+
+  //処刑する人を取得する
+  var killUserName = hitarray[1]; //正規表現の部分一致にヒットすること。
+
+  //処刑する人が存在するか確認する
+  var killuser = users.find(user => killUserName == getUserDisplayName(user.userId));
+  if(killuser === undefined)
+  {
+    var replyText = killuserName + " は参加していません";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    //処理終了
+    return;
+  }
+
+  //投票者のデータを取得する
+  var voteuser = users.find(user => user.userId == lineUserId);
+  //投票する
+  sheet.getRange(voteuser.row + 1, 4, 1, 1).setValue(killuser.userId);
+
+  var replyText = getUserDisplayName(lineUserId) + " は " + killuserName + " に投票しました";
+  sendMessage(replyToken, replyText);
+  debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+  // //他の人は全員投票したのか確認する
+  // if(users.filter(user => user.userId != lineUserId && user.vote == "").length > 0)
+  // {
+  //   //まだ投票していない人がいるので何もしない
+  //   return;
+  // }
+
+  // //全員投票していたらプッシュ通知をする
+  // getGameRoomId(gameId);
 }
 
 //村人を襲います
-function killVillager(postMsg, lineUserId, roomId, replyToken)
+function killVillager(key, postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "村人を襲う");
+}
+
+//ゲームの状態を取得します
+function getGameState(gameId)
+{
+  //gameIdが一致する行を検索する
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_GAME);
+  var gamerow = sheet.getDataRange().getValues().filter(row => row[0] == gameId)
+
+  //見つからない場合
+  if(gamerow === undefined)
+  {
+    throw "システムエラー。指定したゲームIDが存在しない。gameId:" + gameId
+  }
+  
+  //状態を返答します
+  return gamerow[2];
+}
+
+//ゲームのroomIdを返します
+function getGameRoomId(gameId)
+{
+  //gameIdが一致する行を検索する
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_GAME);
+  var gamerow = sheet.getDataRange().getValues().filter(row => row[0] == gameId)
+
+  //見つからない場合
+  if(gamerow === undefined)
+  {
+    throw "システムエラー。指定したゲームIDが存在しない。gameId:" + gameId
+  }
+  
+  //roomidを返答します
+  return gamerow[1];
 }
 
 //ゲームの状態を変更します
@@ -372,6 +490,38 @@ function maxValueGet(sheet_name, column)
 function setData(sheet_name, data) {
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheet_name);
   sheet.appendRow(data);
+}
+
+//ユーザIDから今参加しているゲームのIDを返答する
+function getNowPlayGameIdByUserId(lineUserId, state)
+{
+  var gamesheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_GAME);
+  var gamedata = gamesheet.getDataRange().getValues();  
+  var usersheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
+  var userdata = usersheet.getDataRange().getValues();
+
+  //自分が生きているデータを探す
+  var alivegamelist = userdata.filter(user => user[1] == lineUserId && user[4] == "ALIVE");
+
+  //自分が生きているゲームで進行中のものがあるか確認する
+  var userhitdata = undefined;
+  if(state == null)
+  {
+    //終わっていないものを探す
+    userhitdata = alivegamelist.find(user => getGameState(user[0]) != GAME_STATE.END);
+  }else{
+    //指定した状態のものを探す
+    userhitdata = alivegamelist.find(user => getGameState(user[0]) == state);
+  }
+  
+  if(userhitdata === undefined)
+  {
+    //見つからなかった ->　今は参加していない
+    return undefined;
+  }else{
+    //gameIdを返す
+    return userhitdata[0];
+  }
 }
 
 //ルームが現在プレイ中のgameIdを取得する
