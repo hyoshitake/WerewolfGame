@@ -166,17 +166,38 @@ function joinGame(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲームに参加");
 
-  // //userシートに追加するデータを作る
-  // var data = [
-  //   Number(gameIdMax) + 1,      //ゲームID
-  //   roomId,             //ルームID
-  //   GAME_STATE.WAIT_JOIN  //ステータス  
-  // ]
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameId(roomId);
 
-  // //シートに追加
-  // setData(SHEET_NAME_GAME, data);
+  //すでに参加済みか確認する
+  var users = getUser(gameId, lineUserId)
+  console.log(users);
 
-  var userName = getUserDisplayName(userId);
+  //参加状態を確認する
+  if(getUser(gameId, lineUserId) !== undefined)
+  {
+    //参加済みの場合
+    var userName = getUserDisplayName(lineUserId);
+    var replyText = userName + " さんは参加済みです。";
+    sendMessage(replyToken, replyText); 
+
+    //処理終了
+    return;
+  }
+  
+  //userシートに追加するデータを作る
+  var data = [
+    gameId,     //ゲームID
+    lineUserId, //ユーザID
+    "",         //狼or村人
+    "",         //投票内容
+    "ALIVE"     //状態
+  ]
+
+  //シートに追加
+  setData(SHEET_NAME_USER, data);
+
+  var userName = getUserDisplayName(lineUserId);
   var replyText = userName + " さんの参加を受け付けました。";
   sendMessage(replyToken, replyText); 
 }
@@ -218,6 +239,26 @@ function setGameState(gameId, state)
   //indexOfは0始まりだが、指定するのは1始まり
   //そして、ヘッダ行があるのでさらにプラス1。
   sheet.getRange(rowidx+2, 3, 1, 1).setValue(state);
+}
+
+//自分のデータを取得する
+function getUser(gameId, lineUserId) {
+  return getUsers(gameId).find(user => user.userId == lineUserId);
+}
+
+// 参加中のユーザ一覧を取得する
+function getUsers(gameId) {
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
+  var data = sheet.getDataRange().getValues();
+
+  return data.filter((user) => user[0] === gameId).map(function(row) { return {
+    gameId: row[0],
+    userId: row[1],
+    role : row[2]	,
+    vote : row[3],
+    state : row[4],
+    };
+  });
 }
 
 // SSからヘッダーを除くデータを取得
@@ -274,7 +315,7 @@ function getNowPlayGameId(roomId)
   var datamap = data.map(function(row) { return {gameId: row[0], roomId: row[1], status: row[2]}; });
 
   //終了していないゲームを取得する
-  var gamerow = datamap.filter((row) => row.roomId == roomId && roomId != GAME_STATE.END);
+  var gamerow = datamap.filter((row) => row.roomId == roomId && row.status != GAME_STATE.END);
 
   //もしも2つ以上あればおかしい
   if(gamerow.length > 1)
