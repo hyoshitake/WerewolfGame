@@ -84,8 +84,7 @@ function reply(data) {
     //回答がない場合は、グループ内の他の会話だと思うので静かにする。
     debug(postMsg, lineUserId, roomId, MSG_RESERVE, "無反応");
   } else {
-    //うまいやり方がわからなかった。mapから取得すると配列で帰ってくるので先頭だけ取得する
-    var action = actions[0];
+    //次のアクションがある場合
 
     //コマンドリストを作って、スプレットシートのアクションに対応するようにする
     var functionList = new Array();
@@ -95,6 +94,9 @@ function reply(data) {
     functionList.voting = function(postMsg, lineUserId, roomId, replyToken){voting(postMsg, lineUserId, roomId, replyToken);}
     functionList.killVillager = function(postMsg, lineUserId, roomId, replyToken){killVillager(postMsg, lineUserId, roomId, replyToken);}
     
+    //うまいやり方がわからなかった。mapから取得すると配列で帰ってくるので先頭だけ取得する
+    var action = actions[0];
+
     //次の行動に応じた関数を実行する
     functionList[action.value](postMsg, lineUserId, roomId, replyToken);
   }
@@ -104,20 +106,37 @@ function reply(data) {
 function gameStart(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム開始");
+  
+  //最大値を取得して追加するので一旦ロックする
+  var lock = LockService.getDocumentLock();
+  try {
+    //ロックを実施する
+    lock.waitLock(5000);
+   
+    //ゲームIDの現在の最大値を取得
+    var gameIdMax = maxValueGet(SHEET_NAME_GAME, 1);
 
-  //GAMEシートに追加するデータを作る
-  var data = [
-    1,      //ゲームID
-    roomId, //ルームID
-    GAME_STATE.WAIT_JOIN  //ステータス  
-  ]
+    //GAMEシートに追加するデータを作る
+    var data = [
+      Number(gameIdMax) + 1,      //ゲームID
+      roomId,             //ルームID
+      GAME_STATE.WAIT_JOIN  //ステータス  
+    ]
 
-  //シートに追加
-  setData(SHEET_NAME_GAME, data);
+    //シートに追加
+    setData(SHEET_NAME_GAME, data);
 
-  //LINEに応答を返す
-  var replyText = "人狼ゲームを開始します。\r\n参加する方は「参加します」と発言してください。\r\n全員参加したら代表者が「揃いました」と発言してください。";
-  sendMessage(replyToken, replyText);
+    //LINEに応答を返す
+    var replyText = "人狼ゲームを開始します。\r\n参加する方は「参加します」と発言してください。\r\n全員参加したら代表者が「揃いました」と発言してください。";
+    sendMessage(replyToken, replyText); 
+  } catch (e) {
+    var replyText = "システムエラーのためゲームを開始できませんでした。";
+    sendMessage(replyToken, replyText); 
+    throw e;
+  }　finally　{
+    //ロックを開放する
+    lock.releaseLock();
+  }
 }
 
 //ゲームに参加します
@@ -160,6 +179,27 @@ function getData(sheet_name) {
   var data = sheet.getDataRange().getValues();
 
   return data.map(function(row) { return {key: row[0], value: row[1], type: row[2]}; });
+}
+
+//シートから1行Arrayで取得
+function getDataColunm(sheet_name, column) {
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheet_name);
+
+  //ヘッダ行を除く2行目から指定列の全データを取得する
+  return sheet.getRange(2, column, sheet.getLastRow()).getValues();
+}
+
+//特定列の最大値を取得
+function maxValueGet(sheet_name, column)
+{
+  //データ取得
+  var data = getDataColunm(sheet_name, column);
+
+  //降順にソート
+  var arraySortedDesc = data.sort(function(a,b){return b-a});
+
+  //最大値を返却
+  return arraySortedDesc[0];
 }
 
 //シートに1行追加
