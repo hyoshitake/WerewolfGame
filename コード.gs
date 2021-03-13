@@ -82,7 +82,7 @@ function reply(data) {
   // 回答の有無に応じて分岐
   if (action === undefined) {
     //回答がない場合は、グループ内の他の会話だと思うので静かにする。
-    debug(postMsg, lineUserId, roomId, MSG_RESERVE, "無反応");
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
   } else {
     //次のアクションがある場合
 
@@ -112,6 +112,7 @@ function gameStart(postMsg, lineUserId, roomId, replyToken)
     var replyText = "実行中のゲームがあります。終了する場合は「ゲームを終了します」と発言してください";
     //メッセージ送信
     sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 
     //処理終了
     return null;
@@ -139,9 +140,12 @@ function gameStart(postMsg, lineUserId, roomId, replyToken)
     //LINEに応答を返す
     var replyText = "人狼ゲームを開始します。\r\n参加する方は「参加します」と発言してください。\r\n全員参加したら代表者が「揃いました」と発言してください。";
     sendMessage(replyToken, replyText); 
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+    setGameState(gameId, GAME_STATE.WAIT_JOIN);
   } catch (e) {
     var replyText = "システムエラーのためゲームを開始できませんでした。";
     sendMessage(replyToken, replyText); 
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
     throw e;
   }　finally　{
     //ロックを開放する
@@ -157,8 +161,20 @@ function gameEnd(postMsg, lineUserId, roomId, replyToken)
   //現在のゲームIDを取得する
   var gameId = getNowPlayGameId(roomId);
 
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    var replyText = "ゲームが開始されていません";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+  }
+
   //終了する
   setGameState(gameId, GAME_STATE.END);
+
+  var replyText = "ゲームを終了しました。";
+  sendMessage(replyToken, replyText); 
+  debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 }
 
 //ゲームに参加します
@@ -169,9 +185,12 @@ function joinGame(postMsg, lineUserId, roomId, replyToken)
   //現在のゲームIDを取得する
   var gameId = getNowPlayGameId(roomId);
 
-  //すでに参加済みか確認する
-  var users = getUser(gameId, lineUserId)
-  console.log(users);
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
 
   //参加状態を確認する
   if(getUser(gameId, lineUserId) !== undefined)
@@ -180,6 +199,7 @@ function joinGame(postMsg, lineUserId, roomId, replyToken)
     var userName = getUserDisplayName(lineUserId);
     var replyText = userName + " さんは参加済みです。";
     sendMessage(replyToken, replyText); 
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 
     //処理終了
     return;
@@ -199,13 +219,60 @@ function joinGame(postMsg, lineUserId, roomId, replyToken)
 
   var userName = getUserDisplayName(lineUserId);
   var replyText = userName + " さんの参加を受け付けました。";
-  sendMessage(replyToken, replyText); 
+  sendMessage(replyToken, replyText);
+  debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 }
 
 //準備が整ったら狼と村人をランダムに決めます
 function completePreparationGame(postMsg, lineUserId, roomId, replyToken)
 {
   debug(postMsg, lineUserId, roomId, MSG_RESERVE, "ゲーム準備OK");
+
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameId(roomId);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+
+  //参加しているユーザを取得
+  var users = getUsers(gameId);
+  var users_count = users.length;
+
+  //ランダムに狼さんを決める
+  //
+  //乱数の範囲の決め方
+  // Math.random() * ( 最大値 - 最小値 ) + 最小値;
+  wolf_index = Math.round(Math.random() * ( users_count - 1 ));
+
+  //役割を設定しながら通知する
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
+  users.forEach( function(user, index){
+    if(index == wolf_index)
+    {
+      //狼の場合
+      // rowは0始まり。getRangeは1始まり。
+      sheet.getRange(user.row + 1, 3, 1, 1).setValue("狼");
+      pushMessage(lineUserId, "あなたは狼になりました。")
+    }
+    else{
+      //村人の場合
+      // rowは0始まり。getRangeは1始まり。
+      sheet.getRange(user.row + 1, 3, 1, 1).setValue("村人");
+      pushMessage(lineUserId, "あなたは村人になりました。")
+    }
+  });
+
+  //通知が終わったので昼にしてゲームを開始する
+  setGameState(gameId, GAME_STATE.NOON);
+  var replyText = "ゲームを開始します。";
+  sendMessage(replyToken, replyText);
+  var replyText = "昼になりました。狼を探しましょう。\r\n狼を決めたら「〇〇に投票します」と発言してください。";
+  sendMessage(replyToken, replyText);
+  debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 }
 
 //投票を受け付けます
@@ -249,16 +316,17 @@ function getUser(gameId, lineUserId) {
 // 参加中のユーザ一覧を取得する
 function getUsers(gameId) {
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
-  var data = sheet.getDataRange().getValues();
-
-  return data.filter((user) => user[0] === gameId).map(function(row) { return {
+  var data = sheet.getDataRange().getValues().map(function(row, index) { return {
     gameId: row[0],
     userId: row[1],
     role : row[2]	,
     vote : row[3],
     state : row[4],
+    row : index
     };
   });
+
+  return data.filter((user) => user.gameId === gameId);
 }
 
 // SSからヘッダーを除くデータを取得
@@ -335,8 +403,9 @@ function getNowPlayGameId(roomId)
 // 単語が一致したセルの回答を配列で返す
 function findResponseArray(word) {
 
+  var reg = new RegExp('^' + word + '$');
   var commandlist = getDataWithoutHeader(SHEET_NAME_COMMAND);
-  return commandlist.find(command => command.key === word);
+  return commandlist.find(command => reg.test(command.key));
 }
 
 // 画像形式でAPI送信
@@ -383,6 +452,29 @@ function postMessage(postData) {
     "payload" : JSON.stringify(postData)
   };
   return UrlFetchApp.fetch(REPLY, options);      
+}
+
+function pushMessage(lineUserId, message) {  
+  // リクエストヘッダ
+  var headers = {
+    "Content-Type" : "application/json; charset=UTF-8",
+    "Authorization" : "Bearer " + ACCESS_TOKEN
+  };
+  // POSTオプション作成
+  var options = {
+    "method" : "POST",
+    "headers" : headers,
+    "payload" : JSON.stringify({
+      "to": lineUserId,
+      "messages":[
+        {
+          "type":"text",
+          "text":message
+        }
+    ]})
+  };
+
+  return UrlFetchApp.fetch(PUSH, options);
 }
 
 /** ユーザーのアカウント名を取得
