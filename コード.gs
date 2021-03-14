@@ -568,14 +568,13 @@ function killVillager(key, postMsg, lineUserId, roomId, replyToken)
   debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 
   //メッセージを返す
-  var message = getUserDisplayName(killuserId) + " が食べられました";
+  var message = getUserDisplayName(killuser.userId) + " が食べられました";
   var pushRoomId = getGameRoomId(gameId);
   debug(postMsg, lineUserId, pushRoomId, MSG_SEND, message);
   pushMessage(pushRoomId, message);
 
   //処刑する
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
-  var killuser = users.find(user => user.userId == killuserId);
   sheet.getRange(killuser.row + 1, 5, 1, 1).setValue("DEATH");
 
   //昼にする
