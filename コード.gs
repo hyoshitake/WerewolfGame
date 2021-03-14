@@ -30,17 +30,7 @@ var GAME_STATE = {
 
 function test()
 {
-  var users = getUsers(18);
-  var vote_values = users.reduce((accumulator, user) => {
-    if(user.state == "ALIVE" && user.role != "狼")
-    {
-      accumulator.push(user.vote);
-    }
-    return accumulator;
-  }, []);
-
-  //最も出現回数が多い人が殺される
-  var killuserId = mode(vote_values);
+  isAliveWolf("a", "a", "U1c98ac328ef63b46e2eb7c4a08260b1d", "", "");
 }
 
 /**
@@ -107,25 +97,195 @@ function reply(data) {
     functionList.gameEnd = function(key, postMsg, lineUserId, roomId, replyToken){gameEnd(key, postMsg, lineUserId, roomId, replyToken);}
     functionList.joinGame = function(key, postMsg, lineUserId, roomId, replyToken){joinGame(key, postMsg, lineUserId, roomId, replyToken);}
     functionList.completePreparationGame = function(key, postMsg, lineUserId, roomId, replyToken){completePreparationGame(key, postMsg, lineUserId, roomId, replyToken);}
-    functionList.killVillager = function(key, postMsg, lineUserId, roomId, replyToken){killVillager(key, postMsg, lineUserId, roomId, replyToken);}
+    functionList.killVillager = function(key, postMsg, lineUserId, roomId, replyToken){
+      //村人を殺す
+      killVillager(key, postMsg, lineUserId, roomId, replyToken);
+
+      //生存村人数を数える
+      if(countAliveVillager(key, postMsg, lineUserId, roomId, replyToken) <= 1)
+      {
+        //一人しか村人が残っていないので狼勝利
+        winWolf(key, postMsg, lineUserId, roomId, replyToken)
+      }else{
+        //まだ村人が生き残っているので昼になる
+        goToNoon(key, postMsg, lineUserId, roomId, replyToken)
+      }
+    }
     functionList.voting = function(key, postMsg, lineUserId, roomId, replyToken){
 
       //投票する
-      if(voting(key, postMsg, lineUserId, roomId, replyToken))
+      if(!voting(key, postMsg, lineUserId, roomId, replyToken))
       {
-        //全員投票したのか確認する
-        if(isAllVote(key, postMsg, lineUserId, roomId, replyToken))
-        {
-          //全員投票したので処刑する
-          killfromVillager(key, postMsg, lineUserId, roomId, replyToken);
-        }
+        //投票失敗
+        return false;
       }
+      
+      //全員投票したのか確認する
+      if(!isAllVote(key, postMsg, lineUserId, roomId, replyToken))
+      {
+        //全員投票していない
+        return false;
+      }
+
+      //全員投票したので処刑する
+      killfromVillager(key, postMsg, lineUserId, roomId, replyToken);
+
+      //狼さんの生存状態を確認する
+      if(isAliveWolf(key, postMsg, lineUserId, roomId, replyToken))
+      {
+        //生きているので、夜になって狼さんが行動します
+        goToNight(key, postMsg, lineUserId, roomId, replyToken)
+      }else{
+        //たおした。村人の勝利
+        winVillager(key, postMsg, lineUserId, roomId, replyToken)
+      }
+      
+    }
+
+    functionList.abstention = function(key, postMsg, lineUserId, roomId, replyToken){
+
+      //投票する
+      if(!abstention(key, postMsg, lineUserId, roomId, replyToken))
+      {
+        //投票失敗
+        return false;
+      }
+      
+      //全員投票したのか確認する
+      if(!isAllVote(key, postMsg, lineUserId, roomId, replyToken))
+      {
+        //全員投票していない
+        return false;
+      }
+
+      //全員投票したので処刑する
+      killfromVillager(key, postMsg, lineUserId, roomId, replyToken);
+
+      //狼さんの生存状態を確認する
+      if(isAliveWolf(key, postMsg, lineUserId, roomId, replyToken))
+      {
+        //生きているので、夜になって狼さんが行動します
+        goToNight(key, postMsg, lineUserId, roomId, replyToken)
+      }else{
+        //たおした。村人の勝利
+        winVillager(key, postMsg, lineUserId, roomId, replyToken)
+      }
+      
     }
 
     //次の行動に応じた関数を実行する
     functionList[action.value](action.key, postMsg, lineUserId, roomId, replyToken);
   }
 }
+
+//夜にします。
+function goToNight(key, postMsg, lineUserId, roomId, replyToken)
+{
+    //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, null);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return false;
+  }
+
+  var replyText = "夜になりました。\r\n狼は「〇〇を殺します」と個別ラインで発言してください。";
+  var pushRoomId = getGameRoomId(gameId);
+  debug(postMsg, lineUserId, pushRoomId, MSG_SEND, replyText);
+  pushMessage(pushRoomId, replyText);
+
+  //夜にします
+  setGameState(gameId, GAME_STATE.NIGHT);
+}
+
+//昼にします。
+function goToNoon(key, postMsg, lineUserId, roomId, replyToken)
+{
+    //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, null);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return false;
+  }
+
+  var replyText = "昼になりました。狼を探しましょう。\r\n狼を決めたら「〇〇に投票します」と個別トークで発言してください。\r\n棄権する場合は「棄権します」と個別トークで発言してください";
+  var pushRoomId = getGameRoomId(gameId);
+  debug(postMsg, lineUserId, pushRoomId, MSG_SEND, replyText);
+  pushMessage(pushRoomId, replyText);
+
+  //昼にします
+  setGameState(gameId, GAME_STATE.NOON);
+}
+
+//村人勝利
+function winVillager(key, postMsg, lineUserId, roomId, replyToken)
+{
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, null);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return false;
+  }
+
+  var replyText = "狼を倒しました。村人の勝利です！";
+  var pushRoomId = getGameRoomId(gameId);
+  debug(postMsg, lineUserId, pushRoomId, MSG_SEND, replyText);
+  pushMessage(pushRoomId, replyText);
+
+  //ゲームを終了する
+  setGameState(gameId, GAME_STATE.END);
+}
+
+//狼勝利
+function winWolf(key, postMsg, lineUserId, roomId, replyToken)
+{
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, null);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return false;
+  }
+
+  var replyText = "村人を追い詰めました。狼の勝利です！";
+  var pushRoomId = getGameRoomId(gameId);
+  debug(postMsg, lineUserId, pushRoomId, MSG_SEND, replyText);
+  pushMessage(pushRoomId, replyText);
+
+  //ゲームを終了する
+  setGameState(gameId, GAME_STATE.END);
+}
+
+//生存している村人数を数える
+function countAliveVillager(key, postMsg, lineUserId, roomId, replyToken)
+{
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, null);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+
+  //user情報を取得する
+  var users = getUsers(gameId);
+
+  //狼の状態取得して確認する
+  return users.filter(user => user.role == "村人" && user.state == "ALIVE").length
+}
+
 
 //ゲームを開始します
 function gameStart(key, postMsg, lineUserId, roomId, replyToken)
@@ -282,6 +442,15 @@ function completePreparationGame(key, postMsg, lineUserId, roomId, replyToken)
   var users = getUsers(gameId);
   var users_count = users.length;
 
+  //5人集まっていないときはエラーをだす
+  if(users_count < 5)
+  {
+    var replyText = "ゲームを開始するには5人以上集まる必要があります。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+    return;
+  }
+
   //ランダムに狼さんを決める
   //
   //乱数の範囲の決め方
@@ -296,7 +465,7 @@ function completePreparationGame(key, postMsg, lineUserId, roomId, replyToken)
       //狼の場合
       // rowは0始まり。getRangeは1始まり。
       sheet.getRange(user.row + 1, 3, 1, 1).setValue("狼");
-      pushMessage(lineUserId, "あなたは狼になりました。")
+      pushMessage(lineUserId, "あなたは人狼に選ばれました")
     }
     else{
       //村人の場合
@@ -308,7 +477,7 @@ function completePreparationGame(key, postMsg, lineUserId, roomId, replyToken)
 
   //通知が終わったので昼にしてゲームを開始する
   setGameState(gameId, GAME_STATE.NOON);
-  var replyText = "ゲームを開始します。\r\n昼になりました。狼を探しましょう。\r\n狼を決めたら「〇〇に投票します」と個別トークで発言してください。";
+  var replyText = "ゲームを開始します。\r\n昼になりました。狼を探しましょう。\r\n狼を決めたら「〇〇に投票します」と個別トークで発言してください。\r\n棄権する場合は「棄権します」と個別トークで発言してください";
   sendMessage(replyToken, replyText);
   debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 }
@@ -365,7 +534,7 @@ function voting(key, postMsg, lineUserId, roomId, replyToken)
   var killuser = users.find(user => killUserName == getUserDisplayName(user.userId));
   if(killuser === undefined)
   {
-    var replyText = killuserName + " は参加していません";
+    var replyText = killUserName + " は参加していません";
     sendMessage(replyToken, replyText);
     debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 
@@ -386,11 +555,106 @@ function voting(key, postMsg, lineUserId, roomId, replyToken)
     return false;
   }
 
+  //狼は投票できません
+  if(voteuser.role == "狼")
+  {
+    var replyText = "狼は投票できません。夜になるまで静かにしましょう";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    return false;
+  }
+
+  //自分自身には投票できない
+  if(voteuser.userId == killuser.userId)
+  {
+    var replyText = "自分自身には投票できません。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    return false;
+  }
+
+  //死んだ人にも投票できない
+  if(killuser.state != "ALIVE")
+  {
+    var replyText = getUserDisplayName(killuser.userId) + " はすでに死亡しています。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    return false;
+  }
+
   //投票する
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
   sheet.getRange(voteuser.row + 1, 4, 1, 1).setValue(killuser.userId);
 
   var replyText = getUserDisplayName(lineUserId) + " は " + killUserName + " に投票しました";
+  sendMessage(replyToken, replyText);
+  debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+  return true;
+}
+
+function abstention(key, postMsg, lineUserId, roomId, replyToken)
+{
+  debug(postMsg, lineUserId, roomId, MSG_RESERVE, "棄権投票");
+
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, GAME_STATE.NOON);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return false;
+  }
+
+  //状態が昼ではない場合
+  if(getGameState(gameId) != GAME_STATE.NOON)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return false;
+  }
+
+  //個別トークではない場合
+  if(roomId != "")
+  {
+    var replyText = "投票は個別トークで受け付けます。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+    return false;
+  }
+
+  //投票者のデータを取得する
+  var users = getUsers(gameId);
+  var voteuser = users.find(user => user.userId == lineUserId);
+
+  //投票済みだったらエラーを出す
+  if(voteuser.vote != "")
+  {
+    var replyText = getUserDisplayName(lineUserId) + " は 投票済みです。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    return false;
+  }
+
+  //狼は投票できません
+  if(voteuser.role == "狼")
+  {
+    var replyText = "狼は投票できません。夜になるまで静かにしましょう";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    return false;
+  }
+
+  //投票する
+  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
+  sheet.getRange(voteuser.row + 1, 4, 1, 1).setValue("棄権");
+
+  var replyText = getUserDisplayName(lineUserId) + " は棄権しました";
   sendMessage(replyToken, replyText);
   debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 
@@ -459,16 +723,27 @@ function killfromVillager(key, postMsg, lineUserId, roomId, replyToken)
   //ユーザ一覧を取得する
   var users = getUsers(gameId);
 
-  var vote_values = users.map(function(user){
+  var vote_values = users.reduce((accumulator, user) => {
     //生きている村人の投票を集計する
     if(user.state == "ALIVE" && user.role != "狼")
     {
-      return user.vote;
+      accumulator.push(user.vote);
     }
-  });
+    return accumulator;
+  }, []);
 
   //最も出現回数が多い人が殺される
   var killuserId = mode(vote_values);
+
+  if(killuserId === undefined){
+    var message = "棄権者が多いか、最多得点者が複数名いたため処刑されませんでした";
+    var pushRoomId = getGameRoomId(gameId);
+    debug(postMsg, lineUserId, pushRoomId, MSG_SEND, message);
+    pushMessage(pushRoomId, message);
+
+    return;
+  }
+
   var message = getUserDisplayName(killuserId) + " が処刑されました";
   var pushRoomId = getGameRoomId(gameId);
   debug(postMsg, lineUserId, pushRoomId, MSG_SEND, message);
@@ -478,9 +753,31 @@ function killfromVillager(key, postMsg, lineUserId, roomId, replyToken)
   var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
   var killuser = users.find(user => user.userId == killuserId);
   sheet.getRange(killuser.row + 1, 5, 1, 1).setValue("DEATH");
+}
 
-  //夜にする
-  setGameState(gameId, GAME_STATE.NIGHT);
+//狼が処刑されていないか確認する
+function isAliveWolf(key, postMsg, lineUserId, roomId, replyToken)
+{
+  //現在のゲームIDを取得する
+  var gameId = getNowPlayGameIdByUserId(lineUserId, null);
+
+  //ゲームの状態を確認する
+  if(gameId === undefined)
+  {
+    debug(postMsg, lineUserId, roomId, MSG_SEND, "無反応");
+    return;
+  }
+
+  //user情報を取得する
+  var users = getUsers(gameId);
+
+  //狼の状態取得して確認する
+  if(users.find(user => user.role == "狼").state == "ALIVE")
+  {
+    return true;
+  }else{
+    return false;
+  }
 }
 
 //村人を襲います
@@ -560,6 +857,26 @@ function killVillager(key, postMsg, lineUserId, roomId, replyToken)
     debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
 
     //処理終了
+    return false;
+  }
+
+    //自分自身には投票できない
+  if(voteuser.userId == killuser.userId)
+  {
+    var replyText = "自分自身には殺せません";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
+    return false;
+  }
+
+  //死んだ人にも投票できない
+  if(killuser.state != "ALIVE")
+  {
+    var replyText = getUserDisplayName(killuser.userId) + " はすでに死亡しています。";
+    sendMessage(replyToken, replyText);
+    debug(postMsg, lineUserId, roomId, MSG_SEND, replyText);
+
     return false;
   }
 
@@ -715,8 +1032,8 @@ function getNowPlayGameIdByUserId(lineUserId, state)
   var usersheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME_USER);
   var userdata = usersheet.getDataRange().getValues();
 
-  //自分が生きているデータを探す
-  var alivegamelist = userdata.filter(user => user[1] == lineUserId && user[4] == "ALIVE");
+  //自分がのデータを探す
+  var alivegamelist = userdata.filter(user => user[1] == lineUserId);
 
   //自分が生きているゲームで進行中のものがあるか確認する
   var userhitdata = undefined;
@@ -776,7 +1093,6 @@ function findResponseArray(word) {
 }
 
 //最頻値を求める
-//参考：https://qiita.com/yas-nyan/items/8afaf7a1fc5b2306354b
 function mode(list)
 {
   //配列ではない場合
@@ -790,32 +1106,39 @@ function mode(list)
     return undefined;
   }
 
-  //回数を記録する連想配列
-  var counter = {}
-  //本来の値を入れた辞書
-  var nativeValues = {}
+  var counter = list.reduce(function(prev, current) {
+    prev[current] = (prev[current] || 0) + 1;
+    return prev;
+  }, {});
 
-  //最頻値とその出現回数を挿入する変数
-  var maxCounter = 0;
-  var maxValue = null;
+  //多い順に並べ替え
+  let counter_map = Object.keys(counter).map((e)=>({ key: e, value: counter[e] }));
+  counter_map.sort(function(a,b){
+    if(a.value < b.value) return 1;
+    if(a.value > b.value) return -1;
+    return 0;
+  });
 
-  for (var i = 0; i < list.length; i++) {
-      //counterに存在しなければ作る。keyは型を区別する
-      if (!counter[list[i] + "_" + typeof list[i]]) {
-          counter[list[i] + "_" + typeof list[i]] = 0;
-      }
-      counter[list[i] + "_" + typeof list[i]]++;
-      nativeValues[list[i] + "_" + typeof list[i]] = list[i];
-
+  //人狼用の処理を入れとく
+  //1番と2番が同じだった場合は処刑しない -> undefinedにする。
+  //  -> 仕様書「得票数最多のプレイヤーが複数⼈いる場合は、誰も処刑されない。」
+  //  -> 仕様書「あるいは棄権と特定プレイヤーが同数で最多得票の場合も、誰も処刑されない。」
+  if(counter_map.length > 1)
+  {
+    if(counter_map[0].value == counter_map[1].value)
+    {
+      return undefined;
+    }
   }
-  for (var j = 0; j < Object.keys(counter).length; j++) {
-      key = Object.keys(counter)[j];
-      if (counter[key] > maxCounter) {
-          maxCounter = counter[key];
-          maxValue = nativeValues[key]
-      }
+
+  //棄権が最も多ければ何もしない
+  //  -> 仕様書「棄権が最多得票の場合、(中略)誰も処刑されない。」
+  if(counter_map[0].key == "棄権")
+  {
+    return undefined;
   }
-  return maxValue
+
+  return counter_map[0].key;
 }
 
 // 画像形式でAPI送信
