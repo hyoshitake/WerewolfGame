@@ -41,10 +41,6 @@ Googleスプレットシートのcommandシートに
 - 自分に投票できない
 - 自分を殺害できない
 - 死亡済みの人に投票・殺害できない
-- 
-## その他、感想・コメントがあれば。
-この課題を通して、LINE Messaging APIとGoogle Apps Scriptに触れることができました。初めて触ってみましたがどちらもドキュメントが充実していて使いやすかったです。  
-御社のプラティオで実装できないかと検討しましたが、乱数生成をする情報が載っていなかったので断念しました。
 
 ## 参考情報
 [【30分でやる】Google Spread Sheetで管理するLINE BOTの作り方](https://qiita.com/WdknWdkn/items/b78ae572e7cb5c9dfdca "【30分でやる】Google Spread Sheetで管理するLINE BOTの作り方")
